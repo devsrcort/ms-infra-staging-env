@@ -1,14 +1,14 @@
 terraform {
   backend "s3" {
-    bucket = "YOUR_BUCKET"
-    key    = "YOUR_KEY"
-    region = "YOUR_REGION"
+    bucket = "srcorp-terraform-backend"
+    key    = "terraform-env"
+    region = "ap-northeast-2"
   }
 }
 
 locals {
   env_name         = "staging"
-  aws_region       = "YOUR_REGION"
+  aws_region       = "ap-northeast-2"
   k8s_cluster_name = "ms-cluster"
 }
 
@@ -22,14 +22,15 @@ provider "aws" {
 }
 
 data "aws_eks_cluster" "msur" {
-  name              = module.aws-kubernetes-cluster.eks_cluster_id
+  name = module.aws-kubernetes-cluster.eks_cluster_id
 }
 
+# Network Configuration
 module "aws-network" {
-  source = "github.com/implementing-microservices/module-aws-network"
+  source = "github.com/devsrcort/module-aws-network"
 
   env_name              = local.env_name
-  vpc_name              = "msur-VPC"
+  vpc_name              = "srcorp-VPC"
   cluster_name          = local.k8s_cluster_name
   aws_region            = local.aws_region
   main_vpc_cidr         = "10.10.0.0/16"
@@ -39,28 +40,30 @@ module "aws-network" {
   private_subnet_b_cidr = "10.10.192.0/18"
 }
 
+# EKS Configuration 
 module "aws-kubernetes-cluster" {
-  source = "github.com/implementing-microservices/module-aws-kubernetes"
+  source = "github.com/devsrcort/module-aws-kubernetes"
 
-  ms_namespace       = "microservices"
+  ms_namespace       = "srcorpClientService"
   env_name           = local.env_name
   aws_region         = local.aws_region
   cluster_name       = local.k8s_cluster_name
   vpc_id             = module.aws-network.vpc_id
   cluster_subnet_ids = module.aws-network.subnet_ids
 
+
   nodegroup_subnet_ids     = module.aws-network.private_subnet_ids
   nodegroup_disk_size      = "20"
   nodegroup_instance_types = ["t3.medium"]
   nodegroup_desired_size   = 1
   nodegroup_min_size       = 1
-  nodegroup_max_size       = 5
+  nodegroup_max_size       = 3
 }
 
 # Create namespace
 # Use kubernetes provider to work with the kubernetes cluster API
 provider "kubernetes" {
-  load_config_file       = false
+  #  load_config_file       = false
   cluster_ca_certificate = base64decode(data.aws_eks_cluster.msur.certificate_authority.0.data)
   host                   = data.aws_eks_cluster.msur.endpoint
   exec {
@@ -77,21 +80,20 @@ resource "kubernetes_namespace" "ms-namespace" {
   }
 }
 
+# GitOps Configuration
 module "argo-cd-server" {
-  source = "github.com/implementing-microservices/module-argo-cd"
+  source = "github.com/devsrcort/module-argo-cd"
 
-  aws_region            = local.aws_region
-  kubernetes_cluster_id = data.aws_eks_cluster.msur.id
-
+  kubernetes_cluster_id        = module.aws-kubernetes-cluster.eks_cluster_id
   kubernetes_cluster_name      = module.aws-kubernetes-cluster.eks_cluster_name
   kubernetes_cluster_cert_data = module.aws-kubernetes-cluster.eks_cluster_certificate_data
   kubernetes_cluster_endpoint  = module.aws-kubernetes-cluster.eks_cluster_endpoint
+  eks_nodegroup_id             = module.aws-kubernetes-cluster.eks_cluster_nodegroup_id
 
-  eks_nodegroup_id = module.aws-kubernetes-cluster.eks_cluster_nodegroup_id
 }
 
 module "aws-databases" {
-  source = "github.com/implementing-microservices/module-aws-db"
+  source = "github.com/devsrcort/ms-aws-db"
 
   aws_region     = local.aws_region
   mysql_password = var.mysql_password
@@ -104,8 +106,9 @@ module "aws-databases" {
   route53_id     = module.aws-network.route53_id
 }
 
+# Create Traefik
 module "traefik" {
-  source = "github.com/implementing-microservices/module-aws-traefik/"
+  source = "github.com/devsrcort/ms-traefik"
 
   aws_region                   = local.aws_region
   kubernetes_cluster_id        = data.aws_eks_cluster.msur.id
