@@ -30,7 +30,7 @@ module "aws-network" {
   source = "github.com/devsrcort/module-aws-network"
 
   env_name              = local.env_name
-  vpc_name              = "srcorp-VPC"
+  vpc_name              = "msur-VPC"
   cluster_name          = local.k8s_cluster_name
   aws_region            = local.aws_region
   main_vpc_cidr         = "10.10.0.0/16"
@@ -44,7 +44,7 @@ module "aws-network" {
 module "aws-kubernetes-cluster" {
   source = "github.com/devsrcort/module-aws-kubernetes"
 
-  ms_namespace       = "srcorpClientService"
+  ms_namespace       = "microservices"
   env_name           = local.env_name
   aws_region         = local.aws_region
   cluster_name       = local.k8s_cluster_name
@@ -57,7 +57,7 @@ module "aws-kubernetes-cluster" {
   nodegroup_instance_types = ["t3.medium"]
   nodegroup_desired_size   = 1
   nodegroup_min_size       = 1
-  nodegroup_max_size       = 3
+  nodegroup_max_size       = 5
 }
 
 # Create namespace
@@ -84,12 +84,14 @@ resource "kubernetes_namespace" "ms-namespace" {
 module "argo-cd-server" {
   source = "github.com/devsrcort/module-argo-cd"
 
-  kubernetes_cluster_id        = module.aws-kubernetes-cluster.eks_cluster_id
+  aws_region            = local.aws_region
+  kubernetes_cluster_id = data.aws_eks_cluster.msur.id
+
   kubernetes_cluster_name      = module.aws-kubernetes-cluster.eks_cluster_name
   kubernetes_cluster_cert_data = module.aws-kubernetes-cluster.eks_cluster_certificate_data
   kubernetes_cluster_endpoint  = module.aws-kubernetes-cluster.eks_cluster_endpoint
-  eks_nodegroup_id             = module.aws-kubernetes-cluster.eks_cluster_nodegroup_id
 
+  eks_nodegroup_id = module.aws-kubernetes-cluster.eks_cluster_nodegroup_id
 }
 
 module "aws-databases" {
